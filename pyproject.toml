@@ -1,0 +1,74 @@
+[project]
+name = "vector-db"
+version = "0.1.0"
+description = "Vector Database REST API with k-NN search capabilities"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi[standard]>=0.115.8",
+    "pydantic>=2.10.6",
+    "pydantic-settings>=2.7.1",
+    "sqlalchemy>=2.0.37",
+    "aiosqlite>=0.21.0",
+    "httpx>=0.28.1",
+    "numpy>=1.24.0",
+    "asyncpg>=0.30.0",
+    "fastcrud>=0.16.0",
+    "greenlet>=3.2.4",
+    "sentence-transformers>=5.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "mypy>=1.14.1",
+    "ruff>=0.9.4",
+    "pytest>=8.3.5",
+    "pytest-asyncio>=0.25.3",
+    "testcontainers[postgres]>=4.12.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["backend"]
+testpaths = ["backend/tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = true
+disallow_untyped_decorators = false
+no_implicit_optional = true
+strict_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+# Path configuration to find modules
+mypy_path = "backend"
+namespace_packages = true
+explicit_package_bases = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "numpy.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "logfire.*"
+ignore_missing_imports = true
+
+[tool.ruff]
+# Allow lines to be as long as 128 characters
+line-length = 128
+
+[tool.ruff.lint]
+# Enable the E (pycodestyle) and F (pyflakes) rule sets
+select = ["E", "F"]
