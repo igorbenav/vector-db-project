@@ -1,6 +1,29 @@
 # Vector Database REST API
 
+![Vector Database Interface](assets/image.png)
+
 ## Index
+
+- [Summary](#summary)
+- [Problem to be Solved](#problem-to-be-solved)
+- [A Possible Solution](#a-possible-solution)
+- [Business Requirements](#business-requirements)
+- [Technical Requirements](#technical-requirements)
+- [Implementation](#implementation)
+  - [Core Architecture](#core-architecture)
+  - [Project Structure and Architecture Overview](#project-structure-and-architecture-overview)
+  - [Data Model & Storage](#data-model--storage)
+  - [Vector Indexing Algorithms](#vector-indexing-algorithms)
+  - [API Design](#api-design)
+  - [Technical decisions](#technical-decisions)
+  - [How to Run](#how-to-run)
+- [Extending](#extending)
+  - [Development Patterns](#development-patterns)
+  - [API Design Patterns](#api-design-patterns)
+  - [Adding New Indexing Methods](#adding-new-indexing-methods)
+  - [Adding New Features](#adding-new-features)
+- [Testing Strategy](#testing-strategy)
+- [License](#license)
 
 ## Summary
 
