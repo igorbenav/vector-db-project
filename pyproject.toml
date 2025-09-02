@@ -4,10 +4,6 @@ version = "0.1.0"
 description = "Vector Database REST API with k-NN search capabilities"
 readme = "README.md"
 requires-python = ">=3.11"
-
-[tool.setuptools.packages.find]
-where = ["backend"]
-include = ["*"]
 dependencies = [
     "fastapi[standard]>=0.115.8",
     "pydantic>=2.10.6",
@@ -21,6 +17,10 @@ dependencies = [
     "greenlet>=3.2.4",
     "sentence-transformers>=5.1.0",
 ]
+
+[tool.setuptools.packages.find]
+where = ["backend"]
+include = ["*"]
 
 [project.optional-dependencies]
 dev = [
