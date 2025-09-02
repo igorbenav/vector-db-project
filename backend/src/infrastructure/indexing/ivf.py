@@ -150,22 +150,10 @@ class IVFIndex(VectorIndex):
         embeddings = np.array([v.embedding for v in self._vectors.values()])
         vector_ids = list(self._vectors.keys())
 
-        effective_clusters = min(self.num_clusters, len(self._vectors))
-        if effective_clusters < self.num_clusters:
-            from ...modules.common.utils.logger import get_logger
-
-            logger = get_logger(__name__)
-            logger.warning(f"Reducing clusters from {self.num_clusters} to {effective_clusters} due to insufficient vectors")
-            self.num_clusters = effective_clusters
-
+        effective_clusters = self._determine_cluster_count()
         centroids, assignments = self._kmeans(embeddings, effective_clusters)
-        self._clusters = [IVFCluster(centroid=centroid) for centroid in centroids]
-        self._vector_to_cluster.clear()
-
-        for i, cluster_idx in enumerate(assignments):
-            vector_id = vector_ids[i]
-            self._clusters[cluster_idx].vector_ids.append(vector_id)
-            self._vector_to_cluster[vector_id] = cluster_idx
+        self._create_clusters_from_centroids(centroids)
+        self._assign_vectors_to_clusters(vector_ids, assignments)
 
         self.num_probes = min(self.num_probes, len(self._clusters))
         self._is_built = True
@@ -187,33 +175,10 @@ class IVFIndex(VectorIndex):
 
         query_vec = np.array(query_embedding)
         cluster_indices = self._find_nearest_clusters(query_vec, self.num_probes)
-        candidate_vectors = []
-        for cluster_idx in cluster_indices:
-            for vector_id in self._clusters[cluster_idx].vector_ids:
-                if vector_id in self._vectors:
-                    vector = self._vectors[vector_id]
+        candidate_vectors = self._collect_candidate_vectors(cluster_indices, metadata_filter)
+        results = self._compute_similarities_and_rank(candidate_vectors, query_embedding, k)
 
-                    if metadata_filter:
-                        if not self._matches_filter(vector.metadata, metadata_filter):
-                            continue
-
-                    candidate_vectors.append(vector)
-
-        results = []
-        for vector in candidate_vectors:
-            similarity = self._cosine_similarity(query_embedding, vector.embedding)
-            results.append(
-                SearchResult(
-                    chunk_id=vector.chunk_id,
-                    document_id=vector.document_id,
-                    content=vector.content,
-                    similarity_score=similarity,
-                    metadata=vector.metadata,
-                )
-            )
-
-        results.sort(key=lambda x: x.similarity_score, reverse=True)
-        return results[:k]
+        return results
 
     def _kmeans(self, data: np.ndarray, k: int) -> tuple[np.ndarray, np.ndarray]:
         """Perform k-means clustering.
@@ -255,21 +220,83 @@ class IVFIndex(VectorIndex):
         centroids[0] = data[np.random.randint(n_samples)]
 
         for i in range(1, k):
-            distances = np.array(
-                [min([float(np.linalg.norm(point - centroid) ** 2) for centroid in centroids[:i]]) for point in data]
-            )
-
-            distances_sum = distances.sum()
-            if distances_sum == 0:
-                selected_idx = np.random.randint(len(data))
-            else:
-                probabilities = distances / distances_sum
-                cumulative_probs = probabilities.cumsum()
-                r = np.random.random()
-                selected_idx = np.where(cumulative_probs >= r)[0][0]
+            distances = self._compute_distances_to_existing_centroids(data, centroids[:i])
+            selected_idx = self._select_next_centroid_probabilistically(distances)
             centroids[i] = data[selected_idx]
 
         return centroids
+
+    def _determine_cluster_count(self) -> int:
+        """Determine effective number of clusters based on available vectors."""
+        effective_clusters = min(self.num_clusters, len(self._vectors))
+        if effective_clusters < self.num_clusters:
+            from ...modules.common.utils.logger import get_logger
+
+            logger = get_logger(__name__)
+            logger.warning(f"Reducing clusters from {self.num_clusters} to {effective_clusters} due to insufficient vectors")
+            self.num_clusters = effective_clusters
+        return effective_clusters
+
+    def _create_clusters_from_centroids(self, centroids: np.ndarray) -> None:
+        """Create cluster objects from computed centroids."""
+        self._clusters = [IVFCluster(centroid=centroid) for centroid in centroids]
+        self._vector_to_cluster.clear()
+
+    def _assign_vectors_to_clusters(self, vector_ids: List[int], assignments: np.ndarray) -> None:
+        """Assign vectors to their respective clusters."""
+        for i, cluster_idx in enumerate(assignments):
+            vector_id = vector_ids[i]
+            self._clusters[cluster_idx].vector_ids.append(vector_id)
+            self._vector_to_cluster[vector_id] = cluster_idx
+
+    def _collect_candidate_vectors(
+        self, cluster_indices: List[int], metadata_filter: Optional[Dict[str, Any]]
+    ) -> List[ChunkVector]:
+        """Collect candidate vectors from selected clusters, applying metadata filter."""
+        candidate_vectors = []
+        for cluster_idx in cluster_indices:
+            for vector_id in self._clusters[cluster_idx].vector_ids:
+                if vector_id in self._vectors:
+                    vector = self._vectors[vector_id]
+                    if metadata_filter and not self._matches_filter(vector.metadata, metadata_filter):
+                        continue
+                    candidate_vectors.append(vector)
+        return candidate_vectors
+
+    def _compute_similarities_and_rank(
+        self, candidate_vectors: List[ChunkVector], query_embedding: List[float], k: int
+    ) -> List[SearchResult]:
+        """Compute similarities for candidates and return top-k results."""
+        results = []
+        for vector in candidate_vectors:
+            similarity = self._cosine_similarity(query_embedding, vector.embedding)
+            results.append(
+                SearchResult(
+                    chunk_id=vector.chunk_id,
+                    document_id=vector.document_id,
+                    content=vector.content,
+                    similarity_score=similarity,
+                    metadata=vector.metadata,
+                )
+            )
+
+        results.sort(key=lambda x: x.similarity_score, reverse=True)
+        return results[:k]
+
+    def _compute_distances_to_existing_centroids(self, data: np.ndarray, centroids: np.ndarray) -> np.ndarray:
+        """Compute distances from each point to nearest existing centroid."""
+        return np.array([min([float(np.linalg.norm(point - centroid) ** 2) for centroid in centroids]) for point in data])
+
+    def _select_next_centroid_probabilistically(self, distances: np.ndarray) -> int:
+        """Select next centroid using probability proportional to squared distance."""
+        distances_sum = distances.sum()
+        if distances_sum == 0:
+            return np.random.randint(len(distances))
+
+        probabilities = distances / distances_sum
+        cumulative_probs = probabilities.cumsum()
+        r = np.random.random()
+        return int(np.where(cumulative_probs >= r)[0][0])
 
     def _find_nearest_cluster(self, query_embedding: List[float]) -> int:
         """Find the nearest cluster for a vector."""

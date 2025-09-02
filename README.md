@@ -269,10 +269,20 @@ The REST API provides CRUD operations across all entities with intuitive resourc
 
 Here are the explanations behind some of the technical decisions:
 
-- We're using Sentence Transformers to be able to just clone and immediately test the implementation locally with no need for external api keys.
-- The system handles concurrent operations through a multi-layered approach that prevents race conditions while maintaining high performance. Each library has its own async lock to ensure index modifications are atomic, while database transactions provide ACID guarantees. In a production setting I would probably use Copy on Read, but this is enough for this proof of concept.
-- Document processing happens asynchronously to prevent blocking the user interface. When users upload documents, they receive immediate feedback while chunking, embedding, and indexing happen in the background with real-time status updates.
-- We used HTMX for the UI since it's simple and functional.
+- **Embedding Model Choice**: We're using Sentence Transformers to be able to just clone and immediately test the implementation locally with no need for external API keys. The `all-mpnet-base-v2` model provides high-quality 768-dimensional embeddings suitable for semantic search.
+
+- **In-Memory Vector Indexing**: For this take-home implementation, vector indexes are stored in memory for simplicity and to demonstrate custom algorithm implementations. **In production, this would be replaced with a persistent vector database solution** such as:
+    - **pgvector**: PostgreSQL extension for vector operations (recommended since we're already using PostgreSQL)
+    - **Dedicated vector databases**: Pinecone, Weaviate, Qdrant, or Milvus
+    - **Cloud solutions**: AWS OpenSearch, Azure Cognitive Search, or Google Vertex AI Vector Search
+
+    The current approach serves the take-home requirements but would face limitations in production (memory usage, index rebuilding on restart, horizontal scaling).
+
+- **Concurrency Control**: The system handles concurrent operations through a multi-layered approach that prevents race conditions while maintaining high performance. Each library has its own async lock to ensure index modifications are atomic, while database transactions provide ACID guarantees. In a production setting I would probably use Copy on Read, but this is enough for this proof of concept.
+
+- **Asynchronous Processing**: Document processing happens asynchronously to prevent blocking the user interface. When users upload documents, they receive immediate feedback while chunking, embedding, and indexing happen in the background with real-time status updates.
+
+- **UI Technology**: We used HTMX for the UI since it's simple and functional for demonstrating the API capabilities.
 
 ### How to Run
 

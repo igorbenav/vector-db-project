@@ -8,6 +8,8 @@ from pydantic import BaseModel
 from sqlalchemy import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ...infrastructure.indexing.base import ChunkVector
+from ...infrastructure.indexing.manager import index_manager
 from ..document.crud import document_crud
 from .crud import chunk_crud
 from .models import Chunk
@@ -58,6 +60,17 @@ class ChunkService:
 
         created_chunk = cast(Any, await chunk_crud.create(db=db, object=chunk_internal))
 
+        document = await document_crud.get(db=db, id=chunk_data.document_id)
+        if document:
+            chunk_vector = ChunkVector(
+                chunk_id=created_chunk.id,
+                document_id=created_chunk.document_id,
+                content=created_chunk.content,
+                embedding=created_chunk.embedding,
+                metadata=created_chunk.extra_metadata or {},
+            )
+            await index_manager.add_chunk_vector(document["library_id"], chunk_vector)
+
         chunk_data_dict = created_chunk.__dict__.copy()
         chunk_data_dict["metadata"] = chunk_data_dict.pop("extra_metadata", {})
 
@@ -104,6 +117,9 @@ class ChunkService:
         await db.commit()
 
         created_chunks = []
+        chunk_vectors = []
+        library_id = None
+
         for row in result.fetchall():
             chunk_obj = row.Chunk
             chunk_data_dict = {
@@ -116,6 +132,24 @@ class ChunkService:
                 "updated_at": chunk_obj.updated_at,
             }
             created_chunks.append(ChunkRead(**chunk_data_dict))
+
+            if library_id is None:
+                document = await document_crud.get(db=db, id=chunk_obj.document_id)
+                if document:
+                    library_id = document["library_id"]
+
+            chunk_vector = ChunkVector(
+                chunk_id=chunk_obj.id,
+                document_id=chunk_obj.document_id,
+                content=chunk_obj.content,
+                embedding=chunk_obj.embedding,
+                metadata=chunk_obj.extra_metadata or {},
+            )
+            chunk_vectors.append(chunk_vector)
+
+        if library_id and chunk_vectors:
+            for chunk_vector in chunk_vectors:
+                await index_manager.add_chunk_vector(library_id, chunk_vector)
 
         return created_chunks
 
@@ -267,6 +301,12 @@ class ChunkService:
         Returns:
             True if deletion was successful
         """
+        chunk = await chunk_crud.get(db=db, id=chunk_id)
+        if chunk:
+            document = await document_crud.get(db=db, id=chunk["document_id"])
+            if document:
+                await index_manager.remove_chunk_vector(document["library_id"], chunk_id)
+
         await chunk_crud.delete(db=db, id=chunk_id)
         return True
 
@@ -284,6 +324,15 @@ class ChunkService:
         Returns:
             True if deletion was successful
         """
+        chunks_result = await chunk_crud.get_multi(db=db, document_id=document_id)
+        chunks_data = chunks_result.get("data", [])
+
+        if chunks_data:
+            document = await document_crud.get(db=db, id=document_id)
+            if document:
+                for chunk in chunks_data:  # type: ignore
+                    await index_manager.remove_chunk_vector(document["library_id"], chunk["id"])
+
         await chunk_crud.delete(db=db, document_id=document_id, allow_multiple=True)
         return True
 
